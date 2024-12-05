@@ -1,12 +1,24 @@
 '''
-Do comparison for dictionary(newly scraped) and the csv, check if there are new items and
+DONE// Do comparison for dictionary(newly scraped) and the csv, check if there are new items and
 then we append to the csv file. 
 
-If there is a new data, send it through telegram bot. can run as polling for the 
+DONE// If there is a new data, send it through telegram bot. can run as polling for the 
 telegram bot and for removed listing, put as Sold in datetime
 
-do an ss at every stage so in case there is a crash, we have the last seen reason 
+ONGOING// do an ss at every stage so in case there is a crash, we have the last seen reason 
 for crash
+
+for errors occured, we can add a job queue to re-search, if its a specific error(?)
+coz maybe its the scraper is unable to find the resource or something that may not need to rescrape
+
+Do checks for reserved to unreserved.
+
+scrape but without the image or useless data. Compare current scraping method vs debloated scraping.
+Check for the total traffic pulled. We want to minimise the data pulled so we can save on bandwidth.
+
+implement residential proxy rotation to the script, and check how to use it.
+I am considering to get from https://iproyal.com/residential-proxies/ $7
+We can then check for "Sold/Unlisted" listings.
 
 '''
 
@@ -25,6 +37,24 @@ import pandas as pd
 messageIds = []
 bot_token = '7849400138:AAGwEP8GbOc9u2ZOhWaxvjBAMVSrsOJb8-M'
 chat_id = '203298543' # My ChatID
+
+def sendPhoto(filename: str):
+    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto'
+
+    # Open the image file in binary mode
+    with open(filename, 'rb') as photo:
+        # Prepare the payload and the file
+        data = {'chat_id': chat_id}
+        files = {'photo': photo}
+        # Send the POST request
+        response = requests.post(URL, data=data, files=files)
+    
+    # Print the response from Telegram API
+    if response.ok:
+        print("Image sent successfully!")
+    else:
+        print(f"Failed to send image. Response: {response.text}")
+        sendMessage(f"There is an image I want to send but got problem.\nFile: {filename}")
 
 def sendMessage(message): # Working
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
@@ -49,7 +79,7 @@ def sendMessage(message): # Working
 
 # This will scrape all the data and put them into a dictionary
 def runDataScraper(playwright: Playwright) -> None:
-    listOfSearches2b = ['y15', 'krr', 'rxz', 'aerox', 'y16', 'nmax', 'burgman']
+    listOfSearches2b = ['y15', 'krr', 'rxz', 'nmax', 'burgman 200', 'adv 150']
     
     # Date Configuration
     now = datetime.now()
@@ -131,7 +161,7 @@ def runDataScraper(playwright: Playwright) -> None:
         scraped_df = pd.DataFrame(data)
         try:
             csv_df = pd.read_csv(file_name)
-            runComparison(data, file_name, dateTimeNow)
+            runComparison2(data, file_name)
         except FileNotFoundError:
             scraped_df.to_csv(file_name, index=False)
         
