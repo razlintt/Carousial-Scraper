@@ -79,7 +79,7 @@ def sendMessage(message): # Working
 
 # This will scrape all the data and put them into a dictionary
 def runDataScraper(playwright: Playwright) -> None:
-    listOfSearches2b = ['y15', 'krr', 'rxz', 'nmax', 'burgman 200', 'adv 150']
+    listOfSearches2b = ['y15', 'krr', 'rxz', 'nmax', 'burgman 200', 'adv']
     
     # Date Configuration
     now = datetime.now()
