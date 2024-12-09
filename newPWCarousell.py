@@ -24,7 +24,6 @@ We can then check for "Sold/Unlisted" listings.
 
 import requests
 from playwright.sync_api import Playwright, sync_playwright, expect
-import csv
 from bs4 import BeautifulSoup
 import time
 from datetime import datetime
@@ -39,7 +38,7 @@ bot_token = '7849400138:AAGwEP8GbOc9u2ZOhWaxvjBAMVSrsOJb8-M'
 chat_id = '203298543' # My ChatID
 
 def sendPhoto(filename: str):
-    url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto'
+    url = f'https://api.telegram.org/bot{bot_token}/sendPhoto'
 
     # Open the image file in binary mode
     with open(filename, 'rb') as photo:
@@ -47,7 +46,7 @@ def sendPhoto(filename: str):
         data = {'chat_id': chat_id}
         files = {'photo': photo}
         # Send the POST request
-        response = requests.post(URL, data=data, files=files)
+        response = requests.post(url, data=data, files=files)
     
     # Print the response from Telegram API
     if response.ok:
