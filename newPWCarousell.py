@@ -5,13 +5,16 @@ then we append to the csv file.
 DONE// If there is a new data, send it through telegram bot. can run as polling for the 
 telegram bot and for removed listing, put as Sold in datetime
 
-ONGOING// do an ss at every stage so in case there is a crash, we have the last seen reason 
+DONE// do an ss at every stage so in case there is a crash, we have the last seen reason 
 for crash
+
+ONGOING// Do checks for reserved to unreserved.
+Add how long then a dealer decided to slash their prices.
+Implement down scrolling to ensure end of page and full scrape.
+Add a Sold By When. 
 
 for errors occured, we can add a job queue to re-search, if its a specific error(?)
 coz maybe its the scraper is unable to find the resource or something that may not need to rescrape
-
-Do checks for reserved to unreserved.
 
 scrape but without the image or useless data. Compare current scraping method vs debloated scraping.
 Check for the total traffic pulled. We want to minimise the data pulled so we can save on bandwidth.
@@ -73,8 +76,16 @@ def sendMessage(message): # Working
         }
         errorLog = response.json()
         response = requests.post(url, data=payload)
+        print("Trying to send this message: ", message)
         
     return response.json()['ok']
+ 
+excluded_resource_types = ["image", "font"] 
+def block_aggressively(route):
+	if (route.request.resource_type in excluded_resource_types):
+		route.abort()
+	else:
+		route.continue_()
 
 # This will scrape all the data and put them into a dictionary
 def runDataScraper(playwright: Playwright) -> None:
@@ -90,6 +101,7 @@ def runDataScraper(playwright: Playwright) -> None:
         browser = playwright.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
+        page.route("**/*", block_aggressively)
         page.goto(websiteLink)
 
         for searchItem in listOfSearches2b:
@@ -294,8 +306,9 @@ def runMainProgram():
     # Timing Configurations
     morningCheck = 11 # Morning check at 11 am
     afternoonCheck = 15 # Afternoon check at 3 pm
-    nightCheck = 18 # Night check at 9 pm
+    nightCheck = 21 # Night check at 9 pm
     lateNightCheck = 2 # Late Check at 2 am
+    testingCheck = 9 # For testing purposes, 25 to disable testing
 
     # Telegram Settings
     # Track the last execution times
@@ -305,7 +318,6 @@ def runMainProgram():
 
     while True:
         current_time = time.time()
-        time.sleep(3) # To stop continuous unneeded looping
 
         if toggle_1t:
             #_prevText, _prevSentMsg = telegramCheckUpdates(_prevText, _prevSentMsg)
@@ -332,13 +344,16 @@ def runMainProgram():
             if prevDay != day:
                 print(f"New Day: {dateTimeNow}")
                 prevDay = day
-                dailyCheck = [morningCheck, afternoonCheck, nightCheck, lateNightCheck]
+                dailyCheck = [morningCheck, afternoonCheck, nightCheck, lateNightCheck, testingCheck]
 
             if hour in dailyCheck:
-                runCarousellSearch()
+                if hour != 25:
+                    runCarousellSearch()
                 dailyCheck.remove(hour)
 
             last_task_1h = current_time
+        
+        time.sleep(3) # To stop continuous unneeded looping
             
 
 runMainProgram()
