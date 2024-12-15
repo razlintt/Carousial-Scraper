@@ -5,13 +5,16 @@ then we append to the csv file.
 DONE// If there is a new data, send it through telegram bot. can run as polling for the 
 telegram bot and for removed listing, put as Sold in datetime
 
-ONGOING// do an ss at every stage so in case there is a crash, we have the last seen reason 
+DONE// do an ss at every stage so in case there is a crash, we have the last seen reason 
 for crash
+
+ONGOING// Do checks for reserved to unreserved.
+Add how long then a dealer decided to slash their prices.
+Implement down scrolling to ensure end of page and full scrape.
+Add a Sold By When. 
 
 for errors occured, we can add a job queue to re-search, if its a specific error(?)
 coz maybe its the scraper is unable to find the resource or something that may not need to rescrape
-
-Do checks for reserved to unreserved.
 
 scrape but without the image or useless data. Compare current scraping method vs debloated scraping.
 Check for the total traffic pulled. We want to minimise the data pulled so we can save on bandwidth.
@@ -46,7 +49,7 @@ def sendPhoto(filename: str):
         data = {'chat_id': chat_id}
         files = {'photo': photo}
         # Send the POST request
-        response = requests.post(URL, data=data, files=files)
+        response = requests.post(url, data=data, files=files)
     
     # Print the response from Telegram API
     if response.ok:
@@ -73,8 +76,16 @@ def sendMessage(message): # Working
         }
         errorLog = response.json()
         response = requests.post(url, data=payload)
+        print("Trying to send this message: ", message)
         
     return response.json()['ok']
+ 
+excluded_resource_types = ["image", "font"] 
+def block_aggressively(route):
+	if (route.request.resource_type in excluded_resource_types):
+		route.abort()
+	else:
+		route.continue_()
 
 # This will scrape all the data and put them into a dictionary
 def runDataScraper(playwright: Playwright) -> None:
@@ -83,88 +94,99 @@ def runDataScraper(playwright: Playwright) -> None:
     # Date Configuration
     now = datetime.now()
     dateTimeNow = now.strftime("%d-%m-%Y %H:%M:%S")
-
-    # Website search
-    websiteLink = "https://www.carousell.sg"
-    browser = playwright.chromium.launch(headless=False)
-    context = browser.new_context()
-    page = context.new_page()
-    page.goto(websiteLink)
     toggle = True
-    for searchItem in listOfSearches2b:
-        print(f"Running Search for {searchItem} at {dateTimeNow}")
-        page.get_by_placeholder("Search for an item").click()
-        page.get_by_placeholder("Search for an item").fill(searchItem)
-        page.get_by_role("button", name=f"{searchItem} in Class 2B").click() # Search button
-        page.get_by_role("button", name="Sort:Best Match").click()
-        page.get_by_text("Recent").click()
-        if toggle:
-            page.get_by_role("button", name="Condition").click()
-            page.locator("label").filter(has_text="Used").locator("rect").click()
-            toggle = False
+    try:
+        # Website search
+        websiteLink = "https://www.carousell.sg"
+        browser = playwright.chromium.launch(headless=False)
+        context = browser.new_context()
+        page = context.new_page()
+        page.route("**/*", block_aggressively)
+        page.goto(websiteLink)
+
+        for searchItem in listOfSearches2b:
+            print(f"Running Search for {searchItem} at {dateTimeNow}")
+            page.get_by_placeholder("Search for an item").click()
+            page.get_by_placeholder("Search for an item").fill(searchItem)
+            page.get_by_role("button", name=f"{searchItem} in Class 2B").click() # Search button
+            page.get_by_role("button", name="Sort:Best Match").click()
+            page.get_by_text("Recent").click()
+            if toggle:
+                page.get_by_role("button", name="Condition").click()
+                page.locator("label").filter(has_text="Used").locator("rect").click()
+                toggle = False
+        
+            # Wait for the page to fully load
+            time.sleep(10)
+
+            # Extract page content as HTML
+            html_content = page.content()
+            ''' # For Debugging
+            # Save the HTML content to a text file
+            with open(f"page_content_{searchItem}.txt", "w", encoding="utf-8") as file:
+                file.write(html_content)
+            '''
+            soup = BeautifulSoup(html_content, "html.parser")
+            keys = ['Date', 'Username', 'Name', 'Before Price', 'After Price', 'Link', 'Sold']
+            data = {key: [] for key in keys}
+            links = soup.find_all("a")
+            # print(links)
+            for link in links:
+                href = link.get("href")
+                
+                if href[:3] == "/u/":
+                    userName = href[3:].split("/")[0]
+                    data['Username'].append(userName)
+                
+                if href[:3] == "/p/":  # Ensure there is an href attribute
+                    data['Date'].append(dateTimeNow)
+                    href = href.split('?t')[0]
+                    saveLink = websiteLink + href
+                    try:
+                        productName, price = link.get_text().split("S$")
+                        # print("Name: ", productName)
+                        # print("Price: S$", price)
+                        # print("link: ", href)
+                        data['Name'].append(productName)
+                        data['Before Price'].append("Not Slashed")
+                        data['After Price'].append(price)
+                        data['Link'].append(saveLink)
+                        data['Sold'].append("No")
+                    except ValueError:
+                        productName, price, beforePrice = link.get_text().split("S$")
+                        # print("Name: ", productName)
+                        # print("Price Before: ", beforePrice)
+                        # print("Price Discounted: S$", price)
+                        # print("link: ", href)
+                        data['Name'].append(productName)
+                        data['Before Price'].append(beforePrice)
+                        data['After Price'].append(price)
+                        data['Link'].append(saveLink)
+                        data['Sold'].append("No")
+            
+                file_name = f'{searchItem}.csv'
+            # print(data)
+
+            # Here, the dictionary is complete. I want to compare with csv
+            #appendToCsv(data, file_name)
+            #print(data)
+            scraped_df = pd.DataFrame(data)
+            try:
+                csv_df = pd.read_csv(file_name)
+                runComparison2(data, file_name)
+            except FileNotFoundError:
+                scraped_df.to_csv(file_name, index=False)
+    except Exception as e:
+        # Take a screenshot when an error occurs
+        screenshot_path = f"error_screenshot_{str(e).split(".")[0]}.png"
+        page.screenshot(path=screenshot_path)
+        print(f"Error occurred: {e}")
+        sendPhoto(screenshot_path)
+        sendMessage("Error Occurred: " + str(e))
+    finally:
+        context.close()
+        browser.close()
     
-        # Wait for the page to fully load
-        time.sleep(10)
-
-        # Extract page content as HTML
-        html_content = page.content()
-        ''' # For Debugging
-        # Save the HTML content to a text file
-        with open(f"page_content_{searchItem}.txt", "w", encoding="utf-8") as file:
-            file.write(html_content)
-        '''
-        soup = BeautifulSoup(html_content, "html.parser")
-        keys = ['Date', 'Username', 'Name', 'Before Price', 'After Price', 'Link', 'Sold']
-        data = {key: [] for key in keys}
-        links = soup.find_all("a")
-        # print(links)
-        for link in links:
-            href = link.get("href")
-            
-            if href[:3] == "/u/":
-                userName = href[3:].split("/")[0]
-                data['Username'].append(userName)
-            
-            if href[:3] == "/p/":  # Ensure there is an href attribute
-                data['Date'].append(dateTimeNow)
-                href = href.split('?t')[0]
-                saveLink = websiteLink + href
-                try:
-                    productName, price = link.get_text().split("S$")
-                    # print("Name: ", productName)
-                    # print("Price: S$", price)
-                    # print("link: ", href)
-                    data['Name'].append(productName)
-                    data['Before Price'].append("Not Slashed")
-                    data['After Price'].append(price)
-                    data['Link'].append(saveLink)
-                    data['Sold'].append("No")
-                except ValueError:
-                    productName, price, beforePrice = link.get_text().split("S$")
-                    # print("Name: ", productName)
-                    # print("Price Before: ", beforePrice)
-                    # print("Price Discounted: S$", price)
-                    # print("link: ", href)
-                    data['Name'].append(productName)
-                    data['Before Price'].append(beforePrice)
-                    data['After Price'].append(price)
-                    data['Link'].append(saveLink)
-                    data['Sold'].append("No")
-        
-            file_name = f'{searchItem}.csv'
-        # print(data)
-
-        # Here, the dictionary is complete. I want to compare with csv
-        #appendToCsv(data, file_name)
-        #print(data)
-        scraped_df = pd.DataFrame(data)
-        try:
-            csv_df = pd.read_csv(file_name)
-            runComparison2(data, file_name)
-        except FileNotFoundError:
-            scraped_df.to_csv(file_name, index=False)
-        
-    # ---------------------
     context.close()
     browser.close()
     print("------------------------------Done search------------------------------------")
@@ -286,6 +308,7 @@ def runMainProgram():
     afternoonCheck = 15 # Afternoon check at 3 pm
     nightCheck = 21 # Night check at 9 pm
     lateNightCheck = 2 # Late Check at 2 am
+    testingCheck = 9 # For testing purposes, 25 to disable testing
 
     # Telegram Settings
     # Track the last execution times
@@ -295,7 +318,6 @@ def runMainProgram():
 
     while True:
         current_time = time.time()
-        time.sleep(3) # To stop continuous unneeded looping
 
         if toggle_1t:
             #_prevText, _prevSentMsg = telegramCheckUpdates(_prevText, _prevSentMsg)
@@ -322,13 +344,16 @@ def runMainProgram():
             if prevDay != day:
                 print(f"New Day: {dateTimeNow}")
                 prevDay = day
-                dailyCheck = [morningCheck, afternoonCheck, nightCheck, lateNightCheck]
+                dailyCheck = [morningCheck, afternoonCheck, nightCheck, lateNightCheck, testingCheck]
 
             if hour in dailyCheck:
-                runCarousellSearch()
+                if hour != 25:
+                    runCarousellSearch()
                 dailyCheck.remove(hour)
 
             last_task_1h = current_time
+        
+        time.sleep(3) # To stop continuous unneeded looping
             
 
 runMainProgram()
